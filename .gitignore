@@ -1,0 +1,41 @@
+# Ignore everything by default. This repo is a curated allowlist of shareable pi config.
+*
+
+# Repo metadata
+!.gitignore
+!README.md
+
+# Traverse into the pi config directory, but ignore its contents unless explicitly allowed below.
+!agent/
+agent/*
+
+# Shareable global pi config
+!agent/settings.json
+!agent/AGENTS.md
+!agent/SYSTEM.md
+!agent/APPEND_SYSTEM.md
+!agent/keybindings.json
+!agent/models.json
+
+# Shareable resources
+!agent/extensions/
+!agent/extensions/**
+!agent/prompts/
+!agent/prompts/**
+!agent/skills/
+!agent/skills/**
+!agent/themes/
+!agent/themes/**
+
+# Never commit runtime state or installed helpers
+agent/auth.json
+agent/bin/
+agent/sessions/
+agent/git/
+agent/npm/
+
+# Common junk
+.DS_Store
+agent/extensions/**/node_modules/
+agent/extensions/**/dist/
+agent/extensions/**/.DS_Store

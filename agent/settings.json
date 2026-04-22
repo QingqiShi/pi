@@ -1,0 +1,11 @@
+{
+  "lastChangelogVersion": "0.68.1",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.4",
+  "defaultThinkingLevel": "xhigh",
+  "transport": "auto",
+  "enableInstallTelemetry": false,
+  "theme": "dark",
+  "editorPaddingX": 2,
+  "hideThinkingBlock": true
+}
