@@ -7,5 +7,17 @@
   "enableInstallTelemetry": false,
   "theme": "dark",
   "editorPaddingX": 2,
-  "hideThinkingBlock": true
+  "hideThinkingBlock": true,
+  "protectedPaths": {
+    "read": {
+      "directoryNames": [".git", ".ssh"],
+      "filePatterns": ["^\\.env(\\..*)?$"],
+      "absolutePaths": ["~/.pi/agent/auth.json"]
+    },
+    "write": {
+      "directoryNames": [".git", "node_modules", ".ssh"],
+      "filePatterns": ["^\\.env(\\..*)?$"],
+      "absolutePaths": ["~/.pi/agent/auth.json"]
+    }
+  }
 }
