@@ -22,5 +22,7 @@ This repo uses an allowlist `.gitignore`, so runtime state stays untracked:
 - pi reads global config from `~/.pi/agent`
 - global extensions in `agent/extensions/*.ts` auto-load on startup
 - `agent/settings.json` includes a custom `protectedPaths` section used by the global protected-paths extension
+- `protectedPaths` is a compact glob-to-access-mode map, e.g. `"node_modules": ["write"]`
+- glob semantics: no `/` means any matching path segment, `/` means a project-relative path glob, and `/...` or `~/...` means an absolute path glob
 - project-specific overrides can live in `.pi/settings.json` under the same `protectedPaths` key
 - after editing extensions, prompts, skills, or themes, run `/reload` or restart pi

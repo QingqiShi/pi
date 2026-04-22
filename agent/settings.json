@@ -9,15 +9,10 @@
   "editorPaddingX": 2,
   "hideThinkingBlock": true,
   "protectedPaths": {
-    "read": {
-      "directoryNames": [".git", ".ssh"],
-      "filePatterns": ["^\\.env(\\..*)?$"],
-      "absolutePaths": ["~/.pi/agent/auth.json"]
-    },
-    "write": {
-      "directoryNames": [".git", "node_modules", ".ssh"],
-      "filePatterns": ["^\\.env(\\..*)?$"],
-      "absolutePaths": ["~/.pi/agent/auth.json"]
-    }
+    ".git": ["read", "write"],
+    ".ssh": ["read", "write"],
+    ".env*": ["read", "write"],
+    "~/.pi/agent/auth.json": ["read", "write"],
+    "node_modules": ["write"]
   }
 }

@@ -1,119 +1,88 @@
 /**
  * Global protected paths extension.
  *
- * Blocks file-tool access to configured protected paths.
- * Auto-discovered from ~/.pi/agent/extensions/.
+ * Blocks file-tool access to protected paths configured via `protectedPaths`
+ * in settings.json.
  *
  * Covered read tools: read, ls, grep, find
  * Covered write tools: write, edit
  * Not covered: bash
  *
- * Configuration lives under `protectedPaths` in settings.json.
+ * Config format:
+ * {
+ *   "protectedPaths": {
+ *     ".git": ["read", "write"],
+ *     ".ssh": ["read", "write"],
+ *     ".env*": ["read", "write"],
+ *     "~/.pi/agent/auth.json": ["read", "write"],
+ *     "node_modules": ["write"],
+ *     "src/generated/**": ["write"]
+ *   }
+ * }
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, resolve, sep } from "node:path";
+import { posix, relative, resolve } from "node:path";
 
 const readTools = new Set(["read", "ls", "grep", "find"]);
 const writeTools = new Set(["write", "edit"]);
 const agentDir = process.env.PI_CODING_AGENT_DIR ?? resolve(homedir(), ".pi", "agent");
 
-type RuleSetConfig = {
-	directoryNames?: string[];
-	filePatterns?: string[];
-	absolutePaths?: string[];
-};
+type AccessMode = "read" | "write";
+type MatchType = "absolute" | "relative" | "segment";
 
-type ProtectedPathsConfig = {
-	read?: RuleSetConfig;
-	write?: RuleSetConfig;
-};
+type ProtectedPathsConfig = Record<string, AccessMode[]>;
 
 type SettingsFile = {
-	protectedPaths?: ProtectedPathsConfig;
+	protectedPaths?: unknown;
 };
 
-type ResolvedRuleSet = {
-	directoryNames: Set<string>;
-	filePatterns: RegExp[];
-	absolutePaths: Set<string>;
+type CompiledRule = {
+	pattern: string;
+	normalizedPattern: string;
+	deniedModes: Set<AccessMode>;
+	matchType: MatchType;
 };
 
-type ResolvedProtectedPathsConfig = {
-	read: ResolvedRuleSet;
-	write: ResolvedRuleSet;
-};
+const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:\//;
+const WINDOWS_ABSOLUTE_ROOT = /^[A-Za-z]:\/$/;
 
-function deepMerge<T extends Record<string, unknown>>(base: T, overrides: Partial<T>): T {
-	const result = { ...base } as T;
-
-	for (const key of Object.keys(overrides) as Array<keyof T>) {
-		const overrideValue = overrides[key];
-		const baseValue = base[key];
-		if (overrideValue === undefined) continue;
-
-		if (
-			typeof overrideValue === "object" &&
-			overrideValue !== null &&
-			!Array.isArray(overrideValue) &&
-			typeof baseValue === "object" &&
-			baseValue !== null &&
-			!Array.isArray(baseValue)
-		) {
-			result[key] = deepMerge(
-				baseValue as Record<string, unknown>,
-				overrideValue as Partial<Record<string, unknown>>,
-			) as T[keyof T];
-		} else {
-			result[key] = overrideValue as T[keyof T];
-		}
-	}
-
-	return result;
+function normalizeAccessModes(value: unknown): AccessMode[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((mode): mode is AccessMode => mode === "read" || mode === "write");
 }
 
-function normalizeToolPath(inputPath: string, cwd: string) {
-	const normalizedInput = inputPath.startsWith("@") ? inputPath.slice(1) : inputPath;
-	return resolve(cwd, normalizedInput);
-}
-
-function expandConfiguredPath(inputPath: string, baseDir: string) {
-	if (inputPath === "~") return homedir();
-	if (inputPath.startsWith("~/")) return resolve(homedir(), inputPath.slice(2));
-	return resolve(baseDir, inputPath);
-}
-
-function normalizeRuleSet(input: unknown, baseDir: string): RuleSetConfig {
+function normalizeProtectedPathsConfig(input: unknown): ProtectedPathsConfig {
 	if (!input || typeof input !== "object" || Array.isArray(input)) {
 		return {};
 	}
 
-	const value = input as Record<string, unknown>;
-	const directoryNames = Array.isArray(value.directoryNames)
-		? value.directoryNames.filter((entry): entry is string => typeof entry === "string")
-		: undefined;
-	const filePatterns = Array.isArray(value.filePatterns)
-		? value.filePatterns.filter((entry): entry is string => typeof entry === "string")
-		: undefined;
-	const absolutePaths = Array.isArray(value.absolutePaths)
-		? value.absolutePaths
-				.filter((entry): entry is string => typeof entry === "string")
-				.map((entry) => expandConfiguredPath(entry, baseDir))
-		: undefined;
+	const config: ProtectedPathsConfig = {};
+	for (const [pattern, deniedModes] of Object.entries(input as Record<string, unknown>)) {
+		if (!pattern.trim() || !Array.isArray(deniedModes)) continue;
+		config[pattern] = normalizeAccessModes(deniedModes);
+	}
 
-	return { directoryNames, filePatterns, absolutePaths };
+	return config;
 }
 
-async function loadConfigFromFile(settingsPath: string, baseDir: string): Promise<ProtectedPathsConfig> {
+function getDefaultConfig(): ProtectedPathsConfig {
+	return {
+		".git": ["read", "write"],
+		".ssh": ["read", "write"],
+		".env*": ["read", "write"],
+		"~/.pi/agent/auth.json": ["read", "write"],
+		"node_modules": ["write"],
+	};
+}
+
+async function loadConfigFromFile(settingsPath: string): Promise<ProtectedPathsConfig> {
 	try {
 		const raw = await readFile(settingsPath, "utf8");
 		const parsed = JSON.parse(raw) as SettingsFile;
-		return {
-			read: normalizeRuleSet(parsed.protectedPaths?.read, baseDir),
-			write: normalizeRuleSet(parsed.protectedPaths?.write, baseDir),
-		};
+		return normalizeProtectedPathsConfig(parsed.protectedPaths);
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
 			return {};
@@ -124,70 +93,104 @@ async function loadConfigFromFile(settingsPath: string, baseDir: string): Promis
 	}
 }
 
-function compileRuleSet(ruleSet?: RuleSetConfig): ResolvedRuleSet {
-	return {
-		directoryNames: new Set((ruleSet?.directoryNames ?? []).map((entry) => entry.toLowerCase())),
-		filePatterns: (ruleSet?.filePatterns ?? []).map((pattern) => new RegExp(pattern, "i")),
-		absolutePaths: new Set(ruleSet?.absolutePaths ?? []),
-	};
+function normalizeForMatching(input: string) {
+	const normalized = posix.normalize(input.replace(/\\/g, "/"));
+	if (normalized === "/" || WINDOWS_ABSOLUTE_ROOT.test(normalized)) {
+		return normalized;
+	}
+	return normalized.replace(/\/+$/, "");
 }
 
-function getDefaultConfig(): ProtectedPathsConfig {
-	return {
-		read: {
-			directoryNames: [".git", ".ssh"],
-			filePatterns: ["^\\.env(\\..*)?$"],
-			absolutePaths: [resolve(agentDir, "auth.json")],
-		},
-		write: {
-			directoryNames: [".git", "node_modules", ".ssh"],
-			filePatterns: ["^\\.env(\\..*)?$"],
-			absolutePaths: [resolve(agentDir, "auth.json")],
-		},
-	};
+function expandHome(input: string) {
+	if (input === "~") return homedir();
+	if (input.startsWith("~/")) return resolve(homedir(), input.slice(2));
+	return input;
 }
 
-async function loadProtectedPathsConfig(cwd: string): Promise<ResolvedProtectedPathsConfig> {
-	const defaultConfig = getDefaultConfig();
-	const globalConfig = await loadConfigFromFile(resolve(agentDir, "settings.json"), agentDir);
-	const projectConfig = await loadConfigFromFile(resolve(cwd, ".pi", "settings.json"), resolve(cwd, ".pi"));
-	const merged = deepMerge(deepMerge(defaultConfig, globalConfig), projectConfig);
-
-	return {
-		read: compileRuleSet(merged.read),
-		write: compileRuleSet(merged.write),
-	};
+function normalizePattern(pattern: string) {
+	return normalizeForMatching(expandHome(pattern.trim()));
 }
 
-function hasProtectedDirectorySegment(absolutePath: string, directoryNames: Set<string>) {
-	return absolutePath
-		.split(sep)
-		.filter(Boolean)
-		.some((segment) => directoryNames.has(segment.toLowerCase()));
+function getMatchType(normalizedPattern: string): MatchType {
+	if (normalizedPattern.startsWith("/") || WINDOWS_ABSOLUTE_PATH.test(normalizedPattern)) return "absolute";
+	if (normalizedPattern.includes("/")) return "relative";
+	return "segment";
 }
 
-function isProtectedPath(absolutePath: string, ruleSet: ResolvedRuleSet) {
-	const fileName = basename(absolutePath);
+function compileRules(config: ProtectedPathsConfig): CompiledRule[] {
+	return Object.entries(config)
+		.map(([pattern, deniedModes]) => {
+			const normalizedPattern = normalizePattern(pattern);
+			const modes = normalizeAccessModes(deniedModes);
+			if (!normalizedPattern || modes.length === 0) return undefined;
 
-	return (
-		ruleSet.absolutePaths.has(absolutePath) ||
-		ruleSet.filePatterns.some((pattern) => pattern.test(fileName)) ||
-		hasProtectedDirectorySegment(absolutePath, ruleSet.directoryNames)
-	);
+			return {
+				pattern,
+				normalizedPattern,
+				deniedModes: new Set(modes),
+				matchType: getMatchType(normalizedPattern),
+			} as CompiledRule;
+		})
+		.filter((rule): rule is CompiledRule => rule !== undefined);
+}
+
+async function loadProtectedPathRules(cwd: string) {
+	const globalConfig = await loadConfigFromFile(resolve(agentDir, "settings.json"));
+	const projectConfig = await loadConfigFromFile(resolve(cwd, ".pi", "settings.json"));
+	return compileRules({
+		...getDefaultConfig(),
+		...globalConfig,
+		...projectConfig,
+	});
+}
+
+function matchesGlob(path: string, pattern: string) {
+	if (posix.matchesGlob(path, pattern)) {
+		return true;
+	}
+
+	if (pattern !== "**" && pattern.endsWith("/**")) {
+		const prefix = pattern.slice(0, -3);
+		return path === prefix || path.startsWith(`${prefix}/`);
+	}
+
+	return false;
+}
+
+function matchesRule(absolutePath: string, cwd: string, rule: CompiledRule) {
+	if (rule.matchType === "absolute") {
+		return matchesGlob(absolutePath, rule.normalizedPattern);
+	}
+
+	if (rule.matchType === "relative") {
+		const relativePath = normalizeForMatching(relative(cwd, absolutePath) || ".");
+		return matchesGlob(relativePath, rule.normalizedPattern);
+	}
+
+	const pathSegments = absolutePath.split("/").filter(Boolean);
+	return pathSegments.some((segment) => matchesGlob(segment, rule.normalizedPattern));
+}
+
+function normalizeToolPath(inputPath: string, cwd: string) {
+	const normalizedInput = inputPath.startsWith("@") ? inputPath.slice(1) : inputPath;
+	return normalizeForMatching(resolve(cwd, normalizedInput));
+}
+
+function getModeForTool(toolName: string): AccessMode | undefined {
+	if (readTools.has(toolName)) return "read";
+	if (writeTools.has(toolName)) return "write";
+	return undefined;
 }
 
 export default function (pi: ExtensionAPI) {
-	let protectedPathsConfig: ResolvedProtectedPathsConfig = {
-		read: compileRuleSet(getDefaultConfig().read),
-		write: compileRuleSet(getDefaultConfig().write),
-	};
+	let compiledRules = compileRules(getDefaultConfig());
 
 	pi.on("session_start", async (_event, ctx) => {
-		protectedPathsConfig = await loadProtectedPathsConfig(ctx.cwd);
+		compiledRules = await loadProtectedPathRules(ctx.cwd);
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
-		const mode = readTools.has(event.toolName) ? "read" : writeTools.has(event.toolName) ? "write" : undefined;
+		const mode = getModeForTool(event.toolName);
 		if (!mode) {
 			return undefined;
 		}
@@ -198,12 +201,14 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const absolutePath = normalizeToolPath(path, ctx.cwd);
-		const ruleSet = protectedPathsConfig[mode];
-		if (!isProtectedPath(absolutePath, ruleSet)) {
+		const matchedRule = compiledRules.find(
+			(rule) => rule.deniedModes.has(mode) && matchesRule(absolutePath, ctx.cwd, rule),
+		);
+		if (!matchedRule) {
 			return undefined;
 		}
 
-		const reason = `Path "${absolutePath}" is protected for ${mode} access`;
+		const reason = `Path "${absolutePath}" is protected for ${mode} access by rule "${matchedRule.pattern}"`;
 		if (ctx.hasUI) {
 			ctx.ui.notify(`Blocked ${event.toolName} on protected path: ${absolutePath}`, "warning");
 		}
