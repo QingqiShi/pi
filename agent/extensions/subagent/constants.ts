@@ -1,0 +1,4 @@
+export const SUBAGENT_CHILD_ENV = "PI_SUBAGENT_CHILD";
+export const MAX_TASKS = 8;
+export const COLLAPSED_ITEM_COUNT = 8;
+export const COLLAPSED_TASK_PREVIEW_COUNT = 3;

@@ -1,18 +1,21 @@
 {
-  "lastChangelogVersion": "0.68.1",
+  "lastChangelogVersion": "0.69.0",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.4",
   "defaultThinkingLevel": "xhigh",
   "transport": "auto",
   "enableInstallTelemetry": false,
+  "skills": ["~/.claude/skills"],
   "theme": "dark",
   "editorPaddingX": 2,
-  "hideThinkingBlock": true,
+  "hideThinkingBlock": false,
   "protectedPaths": {
     ".git": ["read", "write"],
     ".ssh": ["read", "write"],
     ".env*": ["read", "write"],
     "~/.pi/agent/auth.json": ["read", "write"],
     "node_modules": ["write"]
-  }
+  },
+  "collapseChangelog": true,
+  "doubleEscapeAction": "tree"
 }
