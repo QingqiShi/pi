@@ -16,6 +16,9 @@ agent/*
 !agent/APPEND_SYSTEM.md
 !agent/keybindings.json
 !agent/models.json
+!agent/package.json
+!agent/package-lock.json
+!agent/tsconfig.json
 
 # Shareable resources
 !agent/extensions/
