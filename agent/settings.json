@@ -7,7 +7,7 @@
   "enableInstallTelemetry": false,
   "skills": ["~/.claude/skills"],
   "theme": "dark",
-  "editorPaddingX": 2,
+  "editorPaddingX": 1,
   "hideThinkingBlock": false,
   "protectedPaths": {
     ".git": ["read", "write"],
